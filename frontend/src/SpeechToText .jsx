@@ -15,7 +15,7 @@ const SpeechToText = () => {
   const mediaRecorderRef = useRef(null);
   const socketRef        = useRef(null);
 
-  /* helpers ──────────────────────────────────────────────── */
+ 
   const pushMessage = (msg) =>
     setMessages((prev) => [...prev, { id: uuid(), ...msg }]);
 
