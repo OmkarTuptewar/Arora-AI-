@@ -3,19 +3,22 @@ import axios from "axios";
 import { v4 as uuid } from "uuid";
 import SpeechToTextUI from "./SpeechToTextUI";
 
-const API = axios.create({ baseURL: "http://localhost:4000" });
+/* Use env variable for base URL */
+const API_BASE = process.env.REACT_APP_API_BASE_URL || "http://localhost:4000";
+const API = axios.create({ baseURL: API_BASE });
 
+/* Convert to WebSocket (http → ws, https → wss) */
+const WS_BASE = API_BASE.replace(/^http/, "ws");
 
 const SpeechToText = () => {
-  const [status, setStatus]       = useState("Not Connected");
-  const [messages, setMessages]   = useState([]);
-  const [isRecording, setIsRec]   = useState(false);
-  const [error, setError]         = useState(null);
+  const [status, setStatus] = useState("Not Connected");
+  const [messages, setMessages] = useState([]);
+  const [isRecording, setIsRec] = useState(false);
+  const [error, setError] = useState(null);
 
   const mediaRecorderRef = useRef(null);
-  const socketRef        = useRef(null);
+  const socketRef = useRef(null);
 
- 
   const pushMessage = (msg) =>
     setMessages((prev) => [...prev, { id: uuid(), ...msg }]);
 
@@ -35,91 +38,88 @@ const SpeechToText = () => {
     stopRecording();
   };
 
+  const startRecording = async () => {
+    setError(null);
+    setStatus("Requesting microphone…");
 
-const startRecording = async () => {
-  setError(null);
-  setStatus("Requesting microphone…");
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
+      mediaRecorderRef.current = recorder;
 
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    const recorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
-    mediaRecorderRef.current = recorder;
+      const socket = new WebSocket(WS_BASE);
+      socketRef.current = socket;
 
-    const socket = new WebSocket("ws://localhost:4000");
-    socketRef.current = socket;
+      socket.onopen = () => {
+        console.log("✅ WebSocket open");
+        setStatus("Connected");
 
-    socket.onopen = () => {
-      console.log("✅ WebSocket open");
-      setStatus("Connected");
-      
-      // Start recording after 1 sec even if no metadata
-      const safeStart = setTimeout(() => {
-        recorder.start(1000);
-        setStatus("Listening…");
-      }, 1000);
-
-      socket.onmessage = async (evt) => {
-        if (!(evt.data instanceof Blob)) return;
-
-        const txt = await evt.data.text();
-        if (txt.includes('"type":"Metadata"')) {
-          clearTimeout(safeStart);
+        const safeStart = setTimeout(() => {
           recorder.start(1000);
           setStatus("Listening…");
-        }
+        }, 1000);
 
-        try {
-          const dg = JSON.parse(txt);
-          const utter = dg.channel?.alternatives?.[0]?.transcript?.trim();
-          if (!utter || !dg.is_final) return;
+        socket.onmessage = async (evt) => {
+          if (!(evt.data instanceof Blob)) return;
 
-          pushMessage({ type: "user", text: utter });
-          pushMessage({ type: "assistant", text: "…" });
-
-          const llmRes = await API.post("/api/generate-content", {
-            transcript: utter,
-          });
-
-          const botText = llmRes.data.choices?.[0]?.message?.content?.trim();
-          if (!botText) return handleError("Empty assistant response");
-
-          patchLastAssistant({ text: botText });
+          const txt = await evt.data.text();
+          if (txt.includes('"type":"Metadata"')) {
+            clearTimeout(safeStart);
+            recorder.start(1000);
+            setStatus("Listening…");
+          }
 
           try {
-            const ttsRes = await API.post(
-              "/generate-audio",
-              { text: botText },
-              { responseType: "blob" }
-            );
-            if (ttsRes.status === 200) {
-              patchLastAssistant({
-                audio: URL.createObjectURL(ttsRes.data),
-              });
+            const dg = JSON.parse(txt);
+            const utter = dg.channel?.alternatives?.[0]?.transcript?.trim();
+            if (!utter || !dg.is_final) return;
+
+            pushMessage({ type: "user", text: utter });
+            pushMessage({ type: "assistant", text: "…" });
+
+            const llmRes = await API.post("/api/generate-content", {
+              transcript: utter,
+            });
+
+            const botText = llmRes.data.choices?.[0]?.message?.content?.trim();
+            if (!botText) return handleError("Empty assistant response");
+
+            patchLastAssistant({ text: botText });
+
+            try {
+              const ttsRes = await API.post(
+                "/generate-audio",
+                { text: botText },
+                { responseType: "blob" }
+              );
+              if (ttsRes.status === 200) {
+                patchLastAssistant({
+                  audio: URL.createObjectURL(ttsRes.data),
+                });
+              }
+            } catch (ttsErr) {
+              console.warn("TTS failed", ttsErr);
             }
-          } catch (ttsErr) {
-            console.warn("TTS failed", ttsErr);
+          } catch (err) {
+            handleError("Parse error", err);
           }
-        } catch (err) {
-          handleError("Parse error", err);
+        };
+      };
+
+      socket.onerror = (e) => handleError("WebSocket error", e);
+      socket.onclose = () => setStatus("Disconnected");
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size && socket.readyState === WebSocket.OPEN) {
+          socket.send(e.data);
         }
       };
-    };
 
-    socket.onerror = (e) => handleError("WebSocket error", e);
-    socket.onclose = () => setStatus("Disconnected");
-
-    recorder.ondataavailable = (e) => {
-      if (e.data.size && socket.readyState === WebSocket.OPEN) {
-        socket.send(e.data);
-      }
-    };
-
-    setIsRec(true);
-  } catch (micErr) {
-    handleError("Mic permission denied or unavailable", micErr);
-  }
-};
-
+      setIsRec(true);
+    } catch (micErr) {
+      handleError("Mic permission denied or unavailable", micErr);
+    }
+  };
 
   const stopRecording = () => {
     try {
@@ -133,7 +133,6 @@ const startRecording = async () => {
     setIsRec(false);
     setStatus("Not Connected");
   };
-
 
   return (
     <SpeechToTextUI
