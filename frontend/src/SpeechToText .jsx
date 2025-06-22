@@ -4,7 +4,7 @@ import { v4 as uuid } from "uuid";
 import SpeechToTextUI from "./SpeechToTextUI";
 
 /* Use env variable for base URL */
-const API_BASE = process.env.REACT_APP_API_BASE_URL || "http://localhost:4000";
+const API_BASE = process.env.REACT_APP_API_BASE_URL || "https://arora-ai-1.onrender.com";
 const API = axios.create({ baseURL: API_BASE });
 
 /* Convert to WebSocket (http → ws, https → wss) */
