@@ -1,0 +1,29 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Global or Component-specific CSS */
+.bg-animated {
+    background: linear-gradient(-45deg, #000000, #1a1a1a, #000033, #003366);
+    background-size: 400% 400%;
+    animation: gradient 15s ease infinite;
+}
+
+@keyframes gradient {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+}
+
+.cyber-grid {
+    background-image: linear-gradient(rgba(0, 0, 0, 0.1) 1px, transparent 1px),
+                      linear-gradient(90deg, rgba(0, 0, 0, 0.1) 1px, transparent 100px);
+    background-size: 20px 20px;
+    animation: cyber-grid-move 20s linear infinite;
+}
+
+@keyframes cyber-grid-move {
+    0% { background-position: 0% 0%; }
+    100% { background-position: 100% 100%; }
+}
+
